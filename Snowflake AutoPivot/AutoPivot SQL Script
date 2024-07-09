@@ -1,0 +1,63 @@
+CREATE OR REPLACE PROCEDURE Auto_Pivot (Input_Table VARCHAR, Pivot_Col VARCHAR, Value VARCHAR, AGG VARCHAR)
+returns TABLE()
+language sql
+AS
+$$
+DECLARE    
+    Pivot_Col_Values_Input VARCHAR;
+    PCL_Output RESULTSET;
+    Pivot_Col_Values_Output VARCHAR;
+        
+    Describe_Table VARCHAR;
+    Describe_Table_Output RESULTSET;
+    
+    Non_Pivot_Col_Values_Input VARCHAR;
+    NPCL_Output RESULTSET;
+    Non_Pivot_Col_Values_Output VARCHAR;
+
+    All_Col_Input VARCHAR;
+    AC_Output RESULTSET;
+    All_Col_Output VARCHAR;
+       
+    SQL_Query_Str VARCHAR;
+    SQL_QUERY RESULTSET;
+    
+BEGIN
+    
+    SET Pivot_Col_Values_Input :=     'SELECT (\'\\\'\'||' || '"' || Pivot_Col || '"'|| '||\'\\\'\') AS C1 FROM ' || Input_Table || ' GROUP BY ' || '"' || Pivot_Col || '"';
+    SET Pivot_Col_Values_Input := 'SELECT LISTAGG(C1,\',\') AS C2 FROM (' || Pivot_Col_Values_Input || ')';
+    
+    PCL_Output := (EXECUTE IMMEDIATE : Pivot_Col_Values_Input);
+
+    LET PCL_Cursor CURSOR FOR PCL_OUTPUT;
+    OPEN PCL_CURSOR;
+    FETCH PCL_CURSOR INTO Pivot_Col_Values_Output;
+
+    SQL_QUERY_STR:= Pivot_Col_Values_Output;
+    SQL_QUERY_STR:= ' PIVOT (' ||AGG || '("' || Value|| '")' || ' FOR "' || Pivot_Col || '" IN (' || SQL_QUERY_STR || '))';
+
+
+    SET Non_Pivot_Col_Values_Input := 'SELECT LISTAGG(REPLACE("name",\' \',\'\'),\',\') FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) WHERE "name" != \'' || Pivot_Col || '\' AND "name" != \'' || Value || '\'';
+    Describe_Table := 'DESCRIBE TABLE ' || Input_Table;
+    Describe_Table_Output := (EXECUTE IMMEDIATE : Describe_Table);
+    NPCL_Output := (EXECUTE IMMEDIATE : Non_Pivot_Col_Values_Input);
+
+    LET NPCL_Cursor CURSOR FOR NPCL_OUTPUT;
+    OPEN NPCL_CURSOR;
+    FETCH NPCL_CURSOR INTO Non_Pivot_Col_Values_Output;
+    
+    All_Col_Input :=  Non_Pivot_Col_Values_Output || ',' || REPLACE(Pivot_Col_Values_Output,'\'','');
+    All_Col_Input :=  'SELECT LISTAGG(VALUE) FROM(SELECT STRTOK_TO_ARRAY(REPLACE(\'' ||                     All_Col_Input || '\',\' \',\'_\'),\'.@+-?!\\\'\') AS A),LATERAL flatten(INPUT => A)';
+    AC_Output:= (EXECUTE IMMEDIATE: All_Col_Input);
+
+    LET AC_Cursor CURSOR FOR AC_Output;
+    OPEN AC_Cursor;
+    FETCH AC_Cursor INTO All_Col_Output;
+    All_Col_Output := ' AS P (' ||All_Col_Output || ')';
+
+    SQL_QUERY_STR := 'SELECT * FROM ' || Input_Table || SQL_QUERY_STR || All_Col_Output;
+    SQL_QUERY := (EXECUTE IMMEDIATE : SQL_QUERY_STR);
+    
+    RETURN TABLE(SQL_QUERY);
+end
+$$;
