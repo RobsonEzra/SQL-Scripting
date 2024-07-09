@@ -1,0 +1,71 @@
+
+// Variables: RA_DynamicPivotExample (Table) , Sales/Profit (Pivot Column), Sum (Aggregation)
+
+//Execute immediate test
+//     OUTPUT := (EXECUTE IMMEDIATE : TESTSQL);
+//SET Pivot_Col_Values_Input := 'SELECT LISTAGG(C1,\',\') AS C2 FROM'
+EXECUTE IMMEDIATE
+$$
+DECLARE    
+
+    Pivot_Col VARCHAR DEFAULT 'Sales/Profit';
+    Input_Table VARCHAR DEFAULT 'RA_DYNAMICPIVOTEXAMPLE';
+    AGG VARCHAR DEFAULT 'SUM';
+    
+
+    Pivot_Col_Values_Input VARCHAR;
+    PCL_Output RESULTSET;
+    Pivot_Col_Values_Output VARCHAR;
+        
+    Describe_Table VARCHAR;
+    Describe_Table_Output RESULTSET;
+    
+    Non_Pivot_Col_Values_Input VARCHAR;
+    NPCL_Output RESULTSET;
+    Non_Pivot_Col_Values_Output VARCHAR;
+
+    All_Col VARCHAR;
+    
+
+    TEST VARCHAR;
+    
+    SQL_Query_Str VARCHAR;
+    SQL_QUERY RESULTSET;
+    
+BEGIN
+    
+    SET Pivot_Col_Values_Input :=     'SELECT (\'\\\'\'||' || '"' || Pivot_Col || '"'|| '||\'\\\'\') AS C1 FROM ' || Input_Table || ' GROUP BY ' || '"' || Pivot_Col || '"';
+    SET Pivot_Col_Values_Input := 'SELECT LISTAGG(C1,\',\') AS C2 FROM (' || Pivot_Col_Values_Input || ')';
+    
+    PCL_Output := (EXECUTE IMMEDIATE : Pivot_Col_Values_Input);
+
+    LET PCL_Cursor CURSOR FOR PCL_OUTPUT;
+    OPEN PCL_CURSOR;
+    FETCH PCL_CURSOR INTO Pivot_Col_Values_Output;
+
+    
+    SQL_QUERY_STR:= Pivot_Col_Values_Output;
+    SQL_QUERY_STR:= ' PIVOT (' ||AGG || '("Value")' || ' FOR "' || Pivot_Col || '" IN (' || SQL_QUERY_STR || '))';
+
+    
+
+    SET Non_Pivot_Col_Values_Input := 'SELECT LISTAGG("name",\',\') FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) WHERE "name" != \'' || Pivot_Col || '\' AND "name" != \'Value\'';
+    Describe_Table := 'DESCRIBE TABLE ' || Input_Table;
+    Describe_Table_Output := (EXECUTE IMMEDIATE : Describe_Table);
+    NPCL_Output := (EXECUTE IMMEDIATE : Non_Pivot_Col_Values_Input);
+
+    LET NPCL_Cursor CURSOR FOR NPCL_OUTPUT;
+    OPEN NPCL_CURSOR;
+    FETCH NPCL_CURSOR INTO Non_Pivot_Col_Values_Output;
+    
+ 
+
+    All_Col := ' AS P (' || Non_Pivot_Col_Values_Output || ',' || REPLACE(Pivot_Col_Values_Output,'\'','') || ')';
+
+    SQL_QUERY_STR := 'SELECT * FROM ' || Input_Table || SQL_QUERY_STR || All_Col;
+    SQL_QUERY := (EXECUTE IMMEDIATE : SQL_QUERY_STR);
+ 
+    
+    RETURN TABLE(SQL_QUERY);
+end
+$$
